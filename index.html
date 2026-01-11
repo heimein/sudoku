@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-VISION SUDOKU HYBRID SYSTEM</title>
+    <style>
+        :root {
+            --bg: #000;
+            --accent: #00f2ff;
+            --amber: #ffaa00;
+            --green: #39ff14;
+            --red: #ff3131;
+            --purple: #bc13fe;
+            --font: 'Share Tech Mono', monospace;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--accent);
+            font-family: var(--font);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            text-transform: uppercase;
+        }
+
+        #gl-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            opacity: 0.4;
+        }
+
+        .ui-overlay {
+            position: relative;
+            z-index: 10;
+            background: rgba(0, 5, 10, 0.9);
+            padding: 25px;
+            border: 1px solid var(--accent);
+            box-shadow: 0 0 30px rgba(0, 242, 255, 0.2);
+            backdrop-filter: blur(10px);
+            max-width: 90vw;
+            max-height: 95vh;
+            transition: border-color 0.3s;
+        }
+
+        .ui-overlay.no-solution {
+            border-color: var(--red);
+            box-shadow: 0 0 30px rgba(255, 49, 49, 0.4);
+        }
+
+        h1 {
+            text-align: center;
+            letter-spacing: 5px;
+            font-size: 1.1rem;
+            margin: 0 0 15px 0;
+            text-shadow: 0 0 10px var(--accent);
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(9, min(45px, 9vw));
+            gap: 1px;
+            background: #111;
+            border: 2px solid var(--accent);
+            margin: 0 auto;
+        }
+
+        .cell {
+            width: min(45px, 9vw);
+            height: min(45px, 9vw);
+            background: #050505;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.1s;
+        }
+
+        .cell:focus {
+            background: rgba(0, 242, 255, 0.2);
+        }
+
+        /* 數獨九宮格粗線 */
+        .cell:nth-child(3n) {
+            border-right: 2px solid var(--accent);
+        }
+
+        .cell:nth-child(9n) {
+            border-right: none;
+        }
+
+        .cell:nth-child(n+19):nth-child(-n+27),
+        .cell:nth-child(n+46):nth-child(-n+54) {
+            border-bottom: 2px solid var(--accent);
+        }
+
+        .cell.fixed {
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        .cell.solving {
+            color: var(--green);
+            text-shadow: 0 0 8px var(--green);
+        }
+
+        .cell.error {
+            color: var(--red);
+            background: rgba(255, 49, 49, 0.1);
+        }
+
+        .dashboard {
+            margin-top: 15px;
+            border: 1px solid #333;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            font-size: 0.7rem;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+        }
+
+        .val {
+            color: var(--amber);
+        }
+
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        button {
+            background: none;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            padding: 8px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.75rem;
+            transition: 0.2s;
+        }
+
+        button:hover:not(:disabled) {
+            background: var(--accent);
+            color: #000;
+            box-shadow: 0 0 10px var(--accent);
+        }
+
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .btn-vision {
+            border-color: var(--purple);
+            color: var(--purple);
+            grid-column: span 2;
+        }
+
+        .btn-vision:hover:not(:disabled) {
+            background: var(--purple);
+            color: #fff;
+            box-shadow: 0 0 10px var(--purple);
+        }
+
+        #status {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 0.8rem;
+            height: 1.2rem;
+            font-weight: bold;
+            color: var(--green);
+        }
+
+        #status.fail {
+            color: var(--red);
+            animation: blink 0.5s infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        .mode-selector {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 10px;
+            font-size: 0.8rem;
+        }
+
+        .mode-option {
+            cursor: pointer;
+            padding: 5px 10px;
+            border: 1px transparent solid;
+        }
+
+        .mode-option.active {
+            border-color: var(--amber);
+            color: var(--amber);
+            background: rgba(255, 170, 0, 0.1);
+        }
+    </style>
+</head>
+
+<body>
+
+    <canvas id="gl-canvas"></canvas>
+
+    <div class="ui-overlay" id="main-ui">
+        <h1>NEURAL-SUDOKU V4 (HYBRID)</h1>
+
+        <div class="mode-selector">
+            <div id="mode-visual" class="mode-option active">視覺掃描 (VISUAL)</div>
+            <div id="mode-instant" class="mode-option">瞬間破解 (INSTANT)</div>
+        </div>
+
+        <div id="sudoku-grid" class="grid-container"></div>
+
+        <div class="dashboard">
+            <div class="stat-row">VISION_ENGINE: <span class="val">GEMINI-2.5-FLASH</span></div>
+            <div class="stat-row">COMPUTE_MODE: <span id="display-mode" class="val">VISUAL SCAN</span></div>
+            <div class="stat-row">STATUS_CODE: <span id="status-code" class="val">IDLE</span></div>
+            <div class="stat-row">CYCLES: <span id="cycle-count" class="val">0</span></div>
+        </div>
+
+        <div id="status">SYSTEM READY</div>
+
+        <div class="btn-group">
+            <input type="file" id="file-input" style="display:none" accept="image/*">
+            <button id="vision-btn" class="btn-vision">掃描題目圖片 (IMAGE ANALYSIS)</button>
+
+            <button id="start-btn">BOOT UP (啟動)</button>
+            <button id="abort-btn">ABORT (重置)</button>
+            <button id="pause-btn">HALT (暫停)</button>
+            <button id="resume-btn" disabled>RESUME (繼續)</button>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = ""; // API Key 留空由環境提供
+        const canvas = document.getElementById('gl-canvas');
+        const gl = canvas.getContext('webgl');
+        const statusEl = document.getElementById('status');
+        const cycleEl = document.getElementById('cycle-count');
+        const statusCodeEl = document.getElementById('status-code');
+        const uiContainer = document.getElementById('main-ui');
+
+        // --- Shader Background (矩陣背景) ---
+        function initShader() {
+            const vs = `attribute vec4 p; void main(){gl_Position=p;}`;
+            const fs = `
+                precision mediump float;
+                uniform float t; uniform vec2 r;
+                void main(){
+                    vec2 uv = gl_FragCoord.xy/r;
+                    float line = sin(uv.y*100.0 + t*2.0)*0.1;
+                    gl_FragColor = vec4(0.0, 0.05 + line, 0.1, 1.0);
+                }
+            `;
+            const createS = (t, s) => { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh); return sh; };
+            const prog = gl.createProgram();
+            gl.attachShader(prog, createS(gl.VERTEX_SHADER, vs));
+            gl.attachShader(prog, createS(gl.FRAGMENT_SHADER, fs));
+            gl.linkProgram(prog); gl.useProgram(prog);
+            const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, 1, 1, 1, -1, -1, 1, -1]), gl.STATIC_DRAW);
+            const p = gl.getAttribLocation(prog, "p");
+            gl.enableVertexAttribArray(p); gl.vertexAttribPointer(p, 2, gl.FLOAT, false, 0, 0);
+            const render = (now) => {
+                gl.uniform1f(gl.getUniformLocation(prog, "t"), now * 0.001);
+                gl.uniform2f(gl.getUniformLocation(prog, "r"), canvas.width, canvas.height);
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); requestAnimationFrame(render);
+            };
+            window.onresize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; gl.viewport(0, 0, canvas.width, canvas.height); };
+            window.onresize(); render(0);
+        }
+
+        // --- Core Variables ---
+        let board = Array(81).fill(0);
+        let cells = [];
+        let cycles = 0;
+        let isRunning = false;
+        let isPaused = false;
+        let computeMode = 'visual'; // 'visual' or 'instant'
+
+        function initUI() {
+            const grid = document.getElementById('sudoku-grid');
+            for (let i = 0; i < 81; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.contentEditable = "true";
+                cell.dataset.index = i;
+                cell.oninput = (e) => {
+                    const val = e.target.textContent.replace(/[^1-9]/g, '').charAt(0);
+                    e.target.textContent = val;
+                    board[i] = val ? parseInt(val) : 0;
+                    if (val) cell.classList.add('fixed'); else cell.classList.remove('fixed');
+                };
+                grid.appendChild(cell);
+                cells.push(cell);
+            }
+
+            // 模式切換邏輯
+            document.getElementById('mode-visual').onclick = () => setMode('visual');
+            document.getElementById('mode-instant').onclick = () => setMode('instant');
+        }
+
+        function setMode(mode) {
+            if (isRunning) return;
+            computeMode = mode;
+            document.querySelectorAll('.mode-option').forEach(opt => opt.classList.remove('active'));
+            document.getElementById(`mode-${mode}`).classList.add('active');
+            document.getElementById('display-mode').textContent = mode === 'visual' ? 'VISUAL SCAN' : 'INSTANT CRACK';
+            document.getElementById('pause-btn').disabled = (mode === 'instant');
+        }
+
+        // 規則檢查 (防呆)
+        function isSafe(b, idx, val) {
+            const r = Math.floor(idx / 9), c = idx % 9;
+            const br = Math.floor(r / 3) * 3, bc = Math.floor(c / 3) * 3;
+            for (let i = 0; i < 9; i++) {
+                if (b[r * 9 + i] === val || b[i * 9 + c] === val || b[(br + Math.floor(i / 3)) * 9 + (bc + (i % 3))] === val) return false;
+            }
+            return true;
+        }
+
+        function checkBoardValid() {
+            for (let i = 0; i < 81; i++) {
+                if (board[i] !== 0) {
+                    const temp = board[i];
+                    board[i] = 0;
+                    if (!isSafe(board, i, temp)) {
+                        board[i] = temp;
+                        cells[i].classList.add('error');
+                        return false;
+                    }
+                    board[i] = temp;
+                    cells[i].classList.remove('error');
+                }
+            }
+            return true;
+        }
+
+        // --- 核心解題引擎 ---
+
+        // 1. 瞬間模式 (同步遞迴)
+        function solveInstant() {
+            cycles++;
+            if (cycles % 1000 === 0) cycleEl.textContent = cycles; // 偶爾更新減少負擔
+
+            let emptyIdx = board.indexOf(0);
+            if (emptyIdx === -1) return true;
+
+            for (let v = 1; v <= 9; v++) {
+                if (isSafe(board, emptyIdx, v)) {
+                    board[emptyIdx] = v;
+                    if (solveInstant()) return true;
+                    board[emptyIdx] = 0;
+                }
+            }
+            return false;
+        }
+
+        // 2. 視覺化模式 (非同步帶延遲)
+        async function solveVisual() {
+            if (!isRunning) return false;
+            while (isPaused) await new Promise(r => setTimeout(r, 100));
+
+            cycles++;
+            cycleEl.textContent = cycles;
+
+            let emptyIdx = board.indexOf(0);
+            if (emptyIdx === -1) return true;
+
+            for (let v = 1; v <= 9; v++) {
+                if (isSafe(board, emptyIdx, v)) {
+                    board[emptyIdx] = v;
+                    cells[emptyIdx].textContent = v;
+                    cells[emptyIdx].classList.add('solving');
+
+                    await new Promise(r => requestAnimationFrame(r)); // 平滑動畫
+
+                    if (await solveVisual()) return true;
+
+                    board[emptyIdx] = 0;
+                    cells[emptyIdx].textContent = '';
+                    cells[emptyIdx].classList.remove('solving');
+                }
+            }
+            return false;
+        }
+
+        // --- UI 操作 ---
+        document.getElementById('start-btn').onclick = async () => {
+            if (isRunning) return;
+
+            // 清理舊錯誤
+            cells.forEach(c => c.classList.remove('error'));
+            uiContainer.classList.remove('no-solution');
+            statusEl.classList.remove('fail');
+
+            if (!checkBoardValid()) {
+                statusEl.textContent = "INITIAL CONFLICT DETECTED";
+                statusEl.classList.add('fail');
+                statusCodeEl.textContent = "ERR_CONFLICT";
+                return;
+            }
+
+            isRunning = true;
+            cycles = 0;
+            statusEl.textContent = "PROCESSING...";
+            statusCodeEl.textContent = "RUNNING";
+
+            let success = false;
+            if (computeMode === 'instant') {
+                const start = performance.now();
+                success = solveInstant();
+                const end = performance.now();
+                syncFinalUI();
+                if (success) statusEl.textContent = `SOLVED IN ${(end - start).toFixed(2)}ms`;
+            } else {
+                success = await solveVisual();
+                if (success) statusEl.textContent = "DECIPHER COMPLETE";
+            }
+
+            isRunning = false;
+            if (!success) {
+                statusEl.textContent = "CRITICAL ERROR: NO SOLUTION";
+                statusEl.classList.add('fail');
+                statusCodeEl.textContent = "ERR_NO_VAL";
+                uiContainer.classList.add('no-solution');
+            } else {
+                statusCodeEl.textContent = "SUCCESS";
+                cycleEl.textContent = cycles;
+            }
+        };
+
+        function syncFinalUI() {
+            cells.forEach((cell, i) => {
+                if (board[i] !== 0) {
+                    cell.textContent = board[i];
+                    if (!cell.classList.contains('fixed')) cell.classList.add('solving');
+                }
+            });
+        }
+
+        document.getElementById('abort-btn').onclick = () => location.reload();
+        document.getElementById('pause-btn').onclick = () => { isPaused = true; statusCodeEl.textContent = "HALTED"; document.getElementById('resume-btn').disabled = false; };
+        document.getElementById('resume-btn').onclick = () => { isPaused = false; statusCodeEl.textContent = "RUNNING"; document.getElementById('resume-btn').disabled = true; };
+
+        // --- Vision AI (Gemini) ---
+        const visionBtn = document.getElementById('vision-btn');
+        const fileInput = document.getElementById('file-input');
+        visionBtn.onclick = () => fileInput.click();
+
+        fileInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            statusEl.textContent = "UPLOADING TO NEURAL NETWORK...";
+            visionBtn.disabled = true;
+
+            const reader = new FileReader();
+            reader.onload = async () => {
+                const base64 = reader.result.split(',')[1];
+                try {
+                    const prompt = "辨識這張數獨圖片。回傳一個包含 81 個數字的 JSON 數組（Array），空格填 0。只輸出 JSON，不含 Markdown。";
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
+                            generationConfig: { responseMimeType: "application/json" }
+                        })
+                    });
+                    const data = await response.json();
+                    const result = JSON.parse(data.candidates[0].content.parts[0].text);
+
+                    board = result.map(n => parseInt(n) || 0);
+                    cells.forEach((c, i) => {
+                        c.textContent = board[i] === 0 ? "" : board[i];
+                        if (board[i] !== 0) c.classList.add('fixed'); else c.classList.remove('fixed');
+                    });
+                    statusEl.textContent = "VISION SYNC SUCCESS";
+                } catch (err) {
+                    statusEl.textContent = "VISION ANALYSIS FAILED";
+                    console.error(err);
+                } finally {
+                    visionBtn.disabled = false;
+                }
+            };
+            reader.readAsDataURL(file);
+        };
+
+        initShader();
+        initUI();
+    </script>
+</body>
+
+</html>
